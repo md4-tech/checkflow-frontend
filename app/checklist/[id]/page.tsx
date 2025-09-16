@@ -1,6 +1,6 @@
 // app/checklist/[id]/page.tsx
 
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 
@@ -10,31 +10,30 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 
-// Tipo para garantir que nossos dados do checklist estejam corretos
 type Checklist = {
   name: string;
 };
 
-// Função assíncrona para buscar os dados no Supabase
-async function getChecklistById(id: string): Promise<Checklist | null> {
-  const supabase = createServerComponentClient({ cookies });
-  const { data, error } = await supabase
+export default async function ChecklistPage({ params }: { params: { id: string } }) {
+
+  const cookieStore = cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+      },
+    }
+  );
+
+  const { data: checklist } = await supabase
     .from('checklists')
     .select('name')
-    .eq('id', id)
-    .single();
-
-  if (error || !data) {
-    console.error('Error fetching checklist:', error);
-    return null;
-  }
-
-  return data;
-}
-
-// A Página (React Server Component)
-export default async function ChecklistPage({ params }: { params: { id:string } }) {
-  const checklist = await getChecklistById(params.id);
+    .eq('id', params.id)
+    .single<Checklist>();
 
   if (!checklist) {
     notFound();
