@@ -8,7 +8,7 @@ import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   CheckCircle2, Loader2, ThumbsUp, ThumbsDown,
-  Info, MapPin, XCircle, UploadCloud, Trash2
+  UploadCloud, Trash2
 } from 'lucide-react';
 
 // Componentes UI do Shadcn
@@ -18,6 +18,9 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from '@/lib/utils';
+
+// MUDANÇA: Importando nosso novo componente de header
+import { ChecklistHeader } from './_components/ChecklistHeader';
 
 // --- Configurações ---
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -73,7 +76,6 @@ export default function ChecklistPage() {
     setAnswers(prev => ({ ...prev, [questionId]: { ...prev[questionId], answer: value } }));
   };
 
-  // CORREÇÃO AQUI: Lógica de estado corrigida para adicionar múltiplas fotos
   const handlePhotoChange = (questionId: string, files: FileList | null) => {
     if (!files) return;
     const newPhotos = Array.from(files);
@@ -102,12 +104,13 @@ export default function ChecklistPage() {
     event.preventDefault();
     if (isSubmitting || !executorId) return;
 
+    if (Object.keys(answers).length < MOCKED_QUESTIONS.length) {
+      alert("Por favor, responda todas as perguntas antes de finalizar.");
+      return;
+    }
+
     for (const q of MOCKED_QUESTIONS) {
         const currentAnswer = answers[q.id];
-        if (!currentAnswer?.answer) {
-            alert(`Por favor, responda à pergunta: "${q.text}"`);
-            return;
-        }
         if (currentAnswer.answer === 'nao' && (!currentAnswer.photos || currentAnswer.photos.length === 0)) {
             alert(`Por favor, anexe pelo menos uma foto para a pergunta: "${q.text}"`);
             return;
@@ -115,12 +118,13 @@ export default function ChecklistPage() {
     }
 
     setIsSubmitting(true);
+    // ... (resto da lógica de submit continua a mesma) ...
     const finalAnswers: Record<string, { answer: string; photo_urls: string[] | null }> = {};
     let hasNonCompliance = false;
 
     for (const questionId in answers) {
       const currentAnswer = answers[questionId];
-      if(!currentAnswer.answer) continue; // Ignora perguntas não respondidas
+      if(!currentAnswer.answer) continue; 
       
       finalAnswers[questionId] = { answer: currentAnswer.answer, photo_urls: null };
       
@@ -162,22 +166,23 @@ export default function ChecklistPage() {
     setIsSubmitting(false);
   };
 
+  const completedTasks = Object.keys(answers).filter(key => answers[key]?.answer).length;
+
   if (isLoading) {
     return ( <main className="flex min-h-screen w-full items-center justify-center bg-gray-50"><Loader2 className="h-8 w-8 animate-spin text-purple-600" /></main> );
   }
 
   return (
     <main className="min-h-screen w-full bg-gray-100 font-sans">
-      <div className="bg-purple-800 p-4 shadow-md flex justify-between items-center text-white sticky top-0 z-10">
-        <Button variant="ghost" size="icon"><XCircle /></Button>
-        <div className="text-center">
-            <h1 className="font-bold text-lg truncate">{checklistName}</h1>
-            {executor && <p className="text-xs text-purple-200">{`Executor: ${executor.name}`}</p>}
-        </div>
-        <div className="flex items-center space-x-2"><Button variant="ghost" size="icon"><MapPin /></Button><Button variant="ghost" size="icon"><Info /></Button></div>
-      </div>
-      <div className="p-4 sm:p-6">
-        <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="p-4 sm:p-6 max-w-xl mx-auto">
+        {/* MUDANÇA: Usando o novo componente de Header */}
+        <ChecklistHeader 
+          userName={executor?.name || null}
+          totalTasks={MOCKED_QUESTIONS.length}
+          completedTasks={completedTasks}
+        />
+        
+        <form onSubmit={handleSubmit} className="space-y-6 mt-6">
           {MOCKED_QUESTIONS.map((question) => (
             <motion.div key={question.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
               <div className="flex flex-col"><p className="text-lg font-semibold text-gray-800">{question.text}</p><p className="text-sm text-gray-500 mt-1">{question.description}</p></div>
@@ -206,6 +211,8 @@ export default function ChecklistPage() {
           <div className="pt-6"><Button type="submit" disabled={isSubmitting} className="w-full bg-purple-700 hover:bg-purple-800 text-white font-bold py-4 px-6 rounded-lg text-xl transition-transform transform hover:scale-105">{isSubmitting ? <><Loader2 className="h-6 w-6 mr-3 animate-spin" /> ENVIANDO...</> : 'FINALIZAR CHECKLIST'}</Button></div>
         </form>
       </div>
+
+      {/* Modal de Sucesso */}
       <AnimatePresence>
         {showSuccessModal && (
           <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}><DialogContent className="sm:max-w-[425px] p-6 text-center"><motion.div initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex flex-col items-center justify-center p-4"><CheckCircle2 className="h-20 w-20 text-green-500 mb-4" /><DialogHeader><DialogTitle className="text-3xl font-bold text-gray-800">Checklist Concluído!</DialogTitle><DialogDescription className="text-gray-600 text-lg mt-2">Suas respostas foram salvas com sucesso.</DialogDescription></DialogHeader><DialogFooter className="mt-6 w-full"><Button onClick={() => window.location.reload()} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 text-lg">Concluir</Button></DialogFooter></motion.div></DialogContent></Dialog>
