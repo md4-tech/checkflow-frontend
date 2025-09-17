@@ -8,7 +8,7 @@ import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   CheckCircle2, Loader2, ThumbsUp, ThumbsDown,
-  UploadCloud, Trash2
+  Info, MapPin, XCircle, UploadCloud, Trash2, SlidersHorizontal
 } from 'lucide-react';
 
 // Componentes UI do Shadcn
@@ -18,9 +18,6 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from '@/lib/utils';
-
-// MUDANÇA: Importando nosso novo componente de header
-import { ChecklistHeader } from './components/ChecklistHeader'; // se estiver na pasta local
 
 // --- Configurações ---
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -43,7 +40,6 @@ export default function ChecklistPage() {
   const params = useParams();
   const checklistId = params.id as string;
 
-  const [checklistName, setChecklistName] = useState<string>('');
   const [executor, setExecutor] = useState<UserData | null>(null);
   const [executorId, setExecutorId] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, AnswerState>>({});
@@ -62,7 +58,6 @@ export default function ChecklistPage() {
       const { data: cData, error: cError } = await supabase.from('checklists').select('name, assigned_user_id').eq('id', checklistId).single<ChecklistData>();
       if (cError || !cData) { notFound(); return; }
       
-      setChecklistName(cData.name);
       setExecutorId(cData.assigned_user_id);
 
       const { data: uData } = await supabase.from('users').select('name, role').eq('id', cData.assigned_user_id).single<UserData>();
@@ -72,101 +67,44 @@ export default function ChecklistPage() {
     fetchData();
   }, [checklistId, supabase]);
 
-  const handleAnswerChange = (questionId: string, value: string) => {
-    setAnswers(prev => ({ ...prev, [questionId]: { ...prev[questionId], answer: value } }));
-  };
-
-  const handlePhotoChange = (questionId: string, files: FileList | null) => {
-    if (!files) return;
-    const newPhotos = Array.from(files);
-    setAnswers(prev => {
-        const existingPhotos = prev[questionId]?.photos || [];
-        return {
-            ...prev,
-            [questionId]: {
-                ...prev[questionId],
-                answer: prev[questionId]?.answer || 'nao',
-                photos: [...existingPhotos, ...newPhotos],
-            }
-        };
-    });
-  };
-  
-  const handleRemovePhoto = (questionId: string, photoIndex: number) => {
-    setAnswers(prev => {
-      const currentPhotos = prev[questionId]?.photos || [];
-      const newPhotos = currentPhotos.filter((_, index) => index !== photoIndex);
-      return { ...prev, [questionId]: { ...prev[questionId], photos: newPhotos } };
-    });
-  };
-
+  // ... (As funções handleAnswerChange, handlePhotoChange, handleRemovePhoto, e handleSubmit continuam exatamente as mesmas) ...
+  const handleAnswerChange = (questionId: string, value: string) => { setAnswers(prev => ({ ...prev, [questionId]: { ...prev[questionId], answer: value } })); };
+  const handlePhotoChange = (questionId: string, files: FileList | null) => { if (!files) return; const newPhotos = Array.from(files); setAnswers(prev => { const existingPhotos = prev[questionId]?.photos || []; return { ...prev, [questionId]: { ...prev[questionId], answer: prev[questionId]?.answer || 'nao', photos: [...existingPhotos, ...newPhotos], } }; }); };
+  const handleRemovePhoto = (questionId: string, photoIndex: number) => { setAnswers(prev => { const currentPhotos = prev[questionId]?.photos || []; const newPhotos = currentPhotos.filter((_, index) => index !== photoIndex); return { ...prev, [questionId]: { ...prev[questionId], photos: newPhotos } }; }); };
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (isSubmitting || !executorId) return;
-
-    if (Object.keys(answers).length < MOCKED_QUESTIONS.length) {
-      alert("Por favor, responda todas as perguntas antes de finalizar.");
-      return;
-    }
-
-    for (const q of MOCKED_QUESTIONS) {
-        const currentAnswer = answers[q.id];
-        if (currentAnswer.answer === 'nao' && (!currentAnswer.photos || currentAnswer.photos.length === 0)) {
-            alert(`Por favor, anexe pelo menos uma foto para a pergunta: "${q.text}"`);
-            return;
-        }
-    }
-
+    if (Object.keys(answers).length < MOCKED_QUESTIONS.length) { alert("Por favor, responda todas as perguntas."); return; }
+    for (const q of MOCKED_QUESTIONS) { const currentAnswer = answers[q.id]; if (currentAnswer.answer === 'nao' && (!currentAnswer.photos || currentAnswer.photos.length === 0)) { alert(`Anexe uma foto para: "${q.text}"`); return; } }
     setIsSubmitting(true);
-    // ... (resto da lógica de submit continua a mesma) ...
     const finalAnswers: Record<string, { answer: string; photo_urls: string[] | null }> = {};
     let hasNonCompliance = false;
-
     for (const questionId in answers) {
       const currentAnswer = answers[questionId];
-      if(!currentAnswer.answer) continue; 
-      
+      if(!currentAnswer.answer) continue;
       finalAnswers[questionId] = { answer: currentAnswer.answer, photo_urls: null };
-      
       if (currentAnswer.answer === 'nao' && currentAnswer.photos && currentAnswer.photos.length > 0) {
         hasNonCompliance = true;
-        const uploadPromises = currentAnswer.photos.map(photo => {
-            const filePath = `public/${checklistId}/${questionId}-${Date.now()}-${photo.name}`;
-            return supabase.storage.from('checklist-photos').upload(filePath, photo);
-        });
+        const uploadPromises = currentAnswer.photos.map(photo => { const filePath = `public/${checklistId}/${questionId}-${Date.now()}-${photo.name}`; return supabase.storage.from('checklist-photos').upload(filePath, photo); });
         const uploadResults = await Promise.all(uploadPromises);
-
         const urls: string[] = [];
-        for (const result of uploadResults) {
-            if (result.error) {
-                alert(`Erro no upload. Tente novamente.`);
-                setIsSubmitting(false);
-                return;
-            }
-            const { data: publicUrlData } = supabase.storage.from('checklist-photos').getPublicUrl(result.data.path);
-            urls.push(publicUrlData.publicUrl);
-        }
+        for (const result of uploadResults) { if (result.error) { alert(`Erro no upload.`); setIsSubmitting(false); return; } const { data: publicUrlData } = supabase.storage.from('checklist-photos').getPublicUrl(result.data.path); urls.push(publicUrlData.publicUrl); }
         finalAnswers[questionId].photo_urls = urls;
       }
     }
-    
-    const { error: insertError } = await supabase.from('submissions').insert({
-        checklist_id: checklistId,
-        executor_id: executorId,
-        answers: finalAnswers,
-        has_non_compliance: hasNonCompliance,
-    });
-
-    if (insertError) {
-        alert("Ocorreu um erro ao salvar.");
-    } else {
-        setShowSuccessModal(true);
-        if (audioRef.current) { audioRef.current.play(); }
-    }
+    const { error: insertError } = await supabase.from('submissions').insert({ checklist_id: checklistId, executor_id: executorId, answers: finalAnswers, has_non_compliance: hasNonCompliance, });
+    if (insertError) { alert("Ocorreu um erro ao salvar."); } 
+    else { setShowSuccessModal(true); if (audioRef.current) { audioRef.current.play(); } }
     setIsSubmitting(false);
   };
 
+  // --- LÓGICA DO HEADER AGORA VIVE AQUI ---
   const completedTasks = Object.keys(answers).filter(key => answers[key]?.answer).length;
+  const totalTasks = MOCKED_QUESTIONS.length;
+  const progressPercentage = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+  const tasksLeft = totalTasks - completedTasks;
+  const today = new Date();
+  const dateString = today.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' });
 
   if (isLoading) {
     return ( <main className="flex min-h-screen w-full items-center justify-center bg-gray-50"><Loader2 className="h-8 w-8 animate-spin text-purple-600" /></main> );
@@ -175,14 +113,30 @@ export default function ChecklistPage() {
   return (
     <main className="min-h-screen w-full bg-gray-100 font-sans">
       <div className="p-4 sm:p-6 max-w-xl mx-auto">
-        {/* MUDANÇA: Usando o novo componente de Header */}
-        <ChecklistHeader 
-          userName={executor?.name || null}
-          totalTasks={MOCKED_QUESTIONS.length}
-          completedTasks={completedTasks}
-        />
         
-        <form onSubmit={handleSubmit} className="space-y-6 mt-6">
+        {/* === CÓDIGO DO HEADER INTEGRADO DIRETAMENTE AQUI === */}
+        <div className="rounded-xl bg-gradient-to-r from-lime-300 via-yellow-200 to-green-300 p-6 text-black shadow-lg mb-6">
+          <div className="flex justify-between items-start">
+            <div>
+              <h1 className="text-4xl font-bold">Olá, {executor?.name || 'Executor'}!</h1>
+              <p className="text-lg text-gray-800">{dateString}</p>
+            </div>
+            <button className="p-2 rounded-full hover:bg-black/10 transition-colors">
+              <SlidersHorizontal size={24} />
+            </button>
+          </div>
+          <div className="mt-8 flex items-center justify-between">
+            <p className="font-semibold">{tasksLeft} tarefa{tasksLeft !== 1 ? 's restantes' : ' restante'}</p>
+            <div className="w-1/2 bg-black/20 rounded-full h-2.5">
+              <div 
+                className="bg-black h-2.5 rounded-full" 
+                style={{ width: `${progressPercentage}%`, transition: 'width 0.5s ease-in-out' }}
+              ></div>
+            </div>
+          </div>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="space-y-6">
           {MOCKED_QUESTIONS.map((question) => (
             <motion.div key={question.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
               <div className="flex flex-col"><p className="text-lg font-semibold text-gray-800">{question.text}</p><p className="text-sm text-gray-500 mt-1">{question.description}</p></div>
@@ -211,8 +165,6 @@ export default function ChecklistPage() {
           <div className="pt-6"><Button type="submit" disabled={isSubmitting} className="w-full bg-purple-700 hover:bg-purple-800 text-white font-bold py-4 px-6 rounded-lg text-xl transition-transform transform hover:scale-105">{isSubmitting ? <><Loader2 className="h-6 w-6 mr-3 animate-spin" /> ENVIANDO...</> : 'FINALIZAR CHECKLIST'}</Button></div>
         </form>
       </div>
-
-      {/* Modal de Sucesso */}
       <AnimatePresence>
         {showSuccessModal && (
           <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}><DialogContent className="sm:max-w-[425px] p-6 text-center"><motion.div initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex flex-col items-center justify-center p-4"><CheckCircle2 className="h-20 w-20 text-green-500 mb-4" /><DialogHeader><DialogTitle className="text-3xl font-bold text-gray-800">Checklist Concluído!</DialogTitle><DialogDescription className="text-gray-600 text-lg mt-2">Suas respostas foram salvas com sucesso.</DialogDescription></DialogHeader><DialogFooter className="mt-6 w-full"><Button onClick={() => window.location.reload()} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 text-lg">Concluir</Button></DialogFooter></motion.div></DialogContent></Dialog>
