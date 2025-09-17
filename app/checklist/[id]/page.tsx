@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 import { notFound, useParams } from 'next/navigation';
+import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   CheckCircle2, Loader2, ThumbsUp, ThumbsDown,
@@ -27,9 +28,8 @@ const SUCCESS_SOUND_URL = "https://mdboxppkyxfxwtuwcpcz.supabase.co/storage/v1/o
 type ChecklistData = { name: string; assigned_user_id: string; };
 type UserData = { name: string; role: string; };
 type Question = { id: string; text: string; description?: string; };
-type AnswerState = { answer: string; photos?: File[] };
+type AnswerState = { answer?: string; photos?: File[] };
 
-// --- Perguntas Mockadas ---
 const MOCKED_QUESTIONS: Question[] = [
   { id: 'q1', text: 'Cintos de segurança funcionam perfeitamente?', description: 'Verifique todos os cintos presente no veículo.' },
   { id: 'q2', text: 'Os pneus estão em bom estado?', description: 'Considerar steps quando houver.' },
@@ -51,7 +51,6 @@ export default function ChecklistPage() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<Record<string, HTMLInputElement | null>>({});
 
-  // CORREÇÃO: Criamos o cliente Supabase uma única vez
   const supabase = createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   useEffect(() => {
@@ -68,23 +67,33 @@ export default function ChecklistPage() {
       setIsLoading(false);
     }
     fetchData();
-    // CORREÇÃO: Adicionamos 'supabase' ao array de dependências para resolver o warning
   }, [checklistId, supabase]);
 
   const handleAnswerChange = (questionId: string, value: string) => {
     setAnswers(prev => ({ ...prev, [questionId]: { ...prev[questionId], answer: value } }));
   };
 
+  // CORREÇÃO AQUI: Lógica de estado corrigida para adicionar múltiplas fotos
   const handlePhotoChange = (questionId: string, files: FileList | null) => {
     if (!files) return;
     const newPhotos = Array.from(files);
-    setAnswers(prev => ({ ...prev, [questionId]: { photos: [...(prev[questionId]?.photos || []), ...newPhotos], ...prev[questionId] } }));
+    setAnswers(prev => {
+        const existingPhotos = prev[questionId]?.photos || [];
+        return {
+            ...prev,
+            [questionId]: {
+                ...prev[questionId],
+                answer: prev[questionId]?.answer || 'nao',
+                photos: [...existingPhotos, ...newPhotos],
+            }
+        };
+    });
   };
   
   const handleRemovePhoto = (questionId: string, photoIndex: number) => {
     setAnswers(prev => {
-      const newPhotos = [...(prev[questionId]?.photos || [])];
-      newPhotos.splice(photoIndex, 1);
+      const currentPhotos = prev[questionId]?.photos || [];
+      const newPhotos = currentPhotos.filter((_, index) => index !== photoIndex);
       return { ...prev, [questionId]: { ...prev[questionId], photos: newPhotos } };
     });
   };
@@ -93,7 +102,6 @@ export default function ChecklistPage() {
     event.preventDefault();
     if (isSubmitting || !executorId) return;
 
-    // CORREÇÃO: Checamos se a resposta existe antes de acessar suas propriedades
     for (const q of MOCKED_QUESTIONS) {
         const currentAnswer = answers[q.id];
         if (!currentAnswer?.answer) {
@@ -112,6 +120,8 @@ export default function ChecklistPage() {
 
     for (const questionId in answers) {
       const currentAnswer = answers[questionId];
+      if(!currentAnswer.answer) continue; // Ignora perguntas não respondidas
+      
       finalAnswers[questionId] = { answer: currentAnswer.answer, photo_urls: null };
       
       if (currentAnswer.answer === 'nao' && currentAnswer.photos && currentAnswer.photos.length > 0) {
@@ -180,11 +190,14 @@ export default function ChecklistPage() {
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mt-6 pt-4 border-t border-gray-200">
                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
                       {answers[question.id]?.photos?.map((photo, photoIndex) => (
-                        <div key={photoIndex} className="relative aspect-square group"><img src={URL.createObjectURL(photo)} alt={`Preview ${photoIndex + 1}`} className="w-full h-full object-cover rounded-md" /><button type="button" onClick={() => handleRemovePhoto(question.id, photoIndex)} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="h-4 w-4" /></button></div>
+                        <div key={photoIndex} className="relative aspect-square group">
+                          <Image src={URL.createObjectURL(photo)} alt={`Preview ${photoIndex + 1}`} width={100} height={100} className="w-full h-full object-cover rounded-md" />
+                          <button type="button" onClick={() => handleRemovePhoto(question.id, photoIndex)} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="h-4 w-4" /></button>
+                        </div>
                       ))}
                       <button type="button" onClick={() => fileInputRef.current[question.id]?.click()} className="flex flex-col items-center justify-center aspect-square border-2 border-dashed border-gray-300 rounded-md text-gray-500 hover:bg-gray-50 hover:border-purple-500 transition-colors"><UploadCloud className="h-8 w-8" /><span className="text-sm mt-1">Adicionar foto</span></button>
                     </div>
-                    <Input id={`photo-${question.id}`} ref={(el) => { if(el) fileInputRef.current[question.id] = el; }}/>
+                    <Input id={`photo-${question.id}`} ref={(el) => { if(el) fileInputRef.current[question.id] = el; }} type="file" multiple accept="image/*" capture="environment" onChange={(e) => handlePhotoChange(question.id, e.target.files)} className="sr-only" />
                   </motion.div>
                 )}
               </AnimatePresence>
