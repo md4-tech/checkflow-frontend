@@ -2,6 +2,7 @@
 "use client";
 
 import { SlidersHorizontal } from 'lucide-react';
+import React from "react";
 
 // Props que o componente receberá
 interface ChecklistHeaderProps {

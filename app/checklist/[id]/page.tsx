@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { cn } from '@/lib/utils';
 
 // MUDANÇA: Importando nosso novo componente de header
-import { ChecklistHeader } from './_components/ChecklistHeader';
+import { ChecklistHeader } from './components/ChecklistHeader'; // se estiver na pasta local
 
 // --- Configurações ---
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
