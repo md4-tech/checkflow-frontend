@@ -11,7 +11,6 @@ import {
   Info, MapPin, XCircle, UploadCloud, Trash2, SlidersHorizontal
 } from 'lucide-react';
 
-// Componentes UI do Shadcn
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -67,16 +66,20 @@ export default function ChecklistPage() {
     fetchData();
   }, [checklistId, supabase]);
 
-  // ... (As funções handleAnswerChange, handlePhotoChange, handleRemovePhoto, e handleSubmit continuam exatamente as mesmas) ...
   const handleAnswerChange = (questionId: string, value: string) => { setAnswers(prev => ({ ...prev, [questionId]: { ...prev[questionId], answer: value } })); };
   const handlePhotoChange = (questionId: string, files: FileList | null) => { if (!files) return; const newPhotos = Array.from(files); setAnswers(prev => { const existingPhotos = prev[questionId]?.photos || []; return { ...prev, [questionId]: { ...prev[questionId], answer: prev[questionId]?.answer || 'nao', photos: [...existingPhotos, ...newPhotos], } }; }); };
   const handleRemovePhoto = (questionId: string, photoIndex: number) => { setAnswers(prev => { const currentPhotos = prev[questionId]?.photos || []; const newPhotos = currentPhotos.filter((_, index) => index !== photoIndex); return { ...prev, [questionId]: { ...prev[questionId], photos: newPhotos } }; }); };
+  
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (isSubmitting || !executorId) return;
     if (Object.keys(answers).length < MOCKED_QUESTIONS.length) { alert("Por favor, responda todas as perguntas."); return; }
     for (const q of MOCKED_QUESTIONS) { const currentAnswer = answers[q.id]; if (currentAnswer.answer === 'nao' && (!currentAnswer.photos || currentAnswer.photos.length === 0)) { alert(`Anexe uma foto para: "${q.text}"`); return; } }
+    
     setIsSubmitting(true);
+    // Simulação de tempo de upload para a animação ser visível
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
     const finalAnswers: Record<string, { answer: string; photo_urls: string[] | null }> = {};
     let hasNonCompliance = false;
     for (const questionId in answers) {
@@ -93,18 +96,12 @@ export default function ChecklistPage() {
       }
     }
     const { error: insertError } = await supabase.from('submissions').insert({ checklist_id: checklistId, executor_id: executorId, answers: finalAnswers, has_non_compliance: hasNonCompliance, });
-    if (insertError) { alert("Ocorreu um erro ao salvar."); } 
+    if (insertError) { alert("Ocorreu um erro ao salvar."); setIsSubmitting(false); } 
     else { setShowSuccessModal(true); if (audioRef.current) { audioRef.current.play(); } }
-    setIsSubmitting(false);
+    // Não resetamos o isSubmitting aqui para o modal aparecer primeiro
   };
-
-  // --- LÓGICA DO HEADER AGORA VIVE AQUI ---
+  
   const completedTasks = Object.keys(answers).filter(key => answers[key]?.answer).length;
-  const totalTasks = MOCKED_QUESTIONS.length;
-  const progressPercentage = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
-  const tasksLeft = totalTasks - completedTasks;
-  const today = new Date();
-  const dateString = today.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' });
 
   if (isLoading) {
     return ( <main className="flex min-h-screen w-full items-center justify-center bg-gray-50"><Loader2 className="h-8 w-8 animate-spin text-purple-600" /></main> );
@@ -113,27 +110,10 @@ export default function ChecklistPage() {
   return (
     <main className="min-h-screen w-full bg-gray-100 font-sans">
       <div className="p-4 sm:p-6 max-w-xl mx-auto">
-        
-        {/* === CÓDIGO DO HEADER INTEGRADO DIRETAMENTE AQUI === */}
         <div className="rounded-xl bg-gradient-to-r from-lime-300 via-yellow-200 to-green-300 p-6 text-black shadow-lg mb-6">
-          <div className="flex justify-between items-start">
-            <div>
-              <h1 className="text-4xl font-bold">Olá, {executor?.name || 'Executor'}!</h1>
-              <p className="text-lg text-gray-800">{dateString}</p>
-            </div>
-            <button className="p-2 rounded-full hover:bg-black/10 transition-colors">
-              <SlidersHorizontal size={24} />
-            </button>
-          </div>
-          <div className="mt-8 flex items-center justify-between">
-            <p className="font-semibold">{tasksLeft} tarefa{tasksLeft !== 1 ? 's restantes' : ' restante'}</p>
-            <div className="w-1/2 bg-black/20 rounded-full h-2.5">
-              <div 
-                className="bg-black h-2.5 rounded-full" 
-                style={{ width: `${progressPercentage}%`, transition: 'width 0.5s ease-in-out' }}
-              ></div>
-            </div>
-          </div>
+          <div className="flex justify-between items-start"><h1 className="text-4xl font-bold">Olá, {executor?.name || 'Executor'}!</h1><button className="p-2 rounded-full hover:bg-black/10 transition-colors"><SlidersHorizontal size={24} /></button></div>
+          <p className="text-lg text-gray-800">{new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })}</p>
+          <div className="mt-8 flex items-center justify-between"><p className="font-semibold">{MOCKED_QUESTIONS.length - completedTasks} tarefa{MOCKED_QUESTIONS.length - completedTasks !== 1 ? 's restantes' : ' restante'}</p><div className="w-1/2 bg-black/20 rounded-full h-2.5"><div className="bg-black h-2.5 rounded-full" style={{ width: `${(completedTasks / MOCKED_QUESTIONS.length) * 100}%`, transition: 'width 0.5s ease-in-out' }}></div></div></div>
         </div>
         
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -149,10 +129,7 @@ export default function ChecklistPage() {
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mt-6 pt-4 border-t border-gray-200">
                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
                       {answers[question.id]?.photos?.map((photo, photoIndex) => (
-                        <div key={photoIndex} className="relative aspect-square group">
-                          <Image src={URL.createObjectURL(photo)} alt={`Preview ${photoIndex + 1}`} width={100} height={100} className="w-full h-full object-cover rounded-md" />
-                          <button type="button" onClick={() => handleRemovePhoto(question.id, photoIndex)} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="h-4 w-4" /></button>
-                        </div>
+                        <div key={photoIndex} className="relative aspect-square group"><Image src={URL.createObjectURL(photo)} alt={`Preview ${photoIndex + 1}`} width={100} height={100} className="w-full h-full object-cover rounded-md" /><button type="button" onClick={() => handleRemovePhoto(question.id, photoIndex)} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="h-4 w-4" /></button></div>
                       ))}
                       <button type="button" onClick={() => fileInputRef.current[question.id]?.click()} className="flex flex-col items-center justify-center aspect-square border-2 border-dashed border-gray-300 rounded-md text-gray-500 hover:bg-gray-50 hover:border-purple-500 transition-colors"><UploadCloud className="h-8 w-8" /><span className="text-sm mt-1">Adicionar foto</span></button>
                     </div>
@@ -162,9 +139,41 @@ export default function ChecklistPage() {
               </AnimatePresence>
             </motion.div>
           ))}
-          <div className="pt-6"><Button type="submit" disabled={isSubmitting} className="w-full bg-purple-700 hover:bg-purple-800 text-white font-bold py-4 px-6 rounded-lg text-xl transition-transform transform hover:scale-105">{isSubmitting ? <><Loader2 className="h-6 w-6 mr-3 animate-spin" /> ENVIANDO...</> : 'FINALIZAR CHECKLIST'}</Button></div>
+          
+          {/* === BOTÃO DE SUBMISSÃO COM NOVA COR E ANIMAÇÃO === */}
+          <div className="pt-6">
+            <Button 
+                type="submit" 
+                disabled={isSubmitting} 
+                className={cn(
+                  "w-full text-white font-bold py-4 px-6 rounded-lg text-xl transition-all duration-300 ease-in-out transform hover:scale-105",
+                  "bg-gradient-to-r from-lime-400 to-green-500 hover:from-lime-500 hover:to-green-600",
+                  "relative overflow-hidden" // Necessário para a animação da barra
+                )}
+              >
+                <AnimatePresence>
+                  {isSubmitting && (
+                    <motion.div
+                      className="absolute top-0 left-0 bottom-0 bg-black/20"
+                      initial={{ width: "0%" }}
+                      animate={{ width: "100%" }}
+                      transition={{ duration: 2, ease: "linear" }} // Duração de 2s para simular upload
+                    />
+                  )}
+                </AnimatePresence>
+                <motion.span
+                  className="relative z-10" // Garante que o texto fique acima da barra
+                  animate={{ opacity: isSubmitting ? 0.7 : 1 }}
+                >
+                  {isSubmitting ? 'ENVIANDO...' : 'FINALIZAR CHECKLIST'}
+                </motion.span>
+            </Button>
+          </div>
+
         </form>
       </div>
+
+      {/* Modal de Sucesso */}
       <AnimatePresence>
         {showSuccessModal && (
           <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}><DialogContent className="sm:max-w-[425px] p-6 text-center"><motion.div initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex flex-col items-center justify-center p-4"><CheckCircle2 className="h-20 w-20 text-green-500 mb-4" /><DialogHeader><DialogTitle className="text-3xl font-bold text-gray-800">Checklist Concluído!</DialogTitle><DialogDescription className="text-gray-600 text-lg mt-2">Suas respostas foram salvas com sucesso.</DialogDescription></DialogHeader><DialogFooter className="mt-6 w-full"><Button onClick={() => window.location.reload()} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 text-lg">Concluir</Button></DialogFooter></motion.div></DialogContent></Dialog>
