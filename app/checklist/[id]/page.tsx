@@ -184,7 +184,7 @@ export default function ChecklistPage() {
                       ))}
                       <button type="button" onClick={() => fileInputRef.current[question.id]?.click()} className="flex flex-col items-center justify-center aspect-square border-2 border-dashed border-gray-300 rounded-md text-gray-500 hover:bg-gray-50 hover:border-purple-500 transition-colors"><UploadCloud className="h-8 w-8" /><span className="text-sm mt-1">Adicionar foto</span></button>
                     </div>
-                    <Input id={`photo-${question.id}`} ref={el => fileInputRef.current[question.id] = el} type="file" multiple accept="image/*" capture="environment" onChange={(e) => handlePhotoChange(question.id, e.target.files)} className="sr-only" />
+                    <Input id={`photo-${question.id}`} ref={(el) => { if(el) fileInputRef.current[question.id] = el; }}/>
                   </motion.div>
                 )}
               </AnimatePresence>
