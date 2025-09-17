@@ -1,5 +1,5 @@
 // app/checklist/[id]/page.tsx
-"use client"; // <-- MUITO IMPORTANTE! Torna o componente interativo.
+"use client";
 
 import { useState, useEffect } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
@@ -10,108 +10,114 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
-import { Input } from '@/components/ui/input'; // Vamos precisar do Input para a foto
+import { Input } from '@/components/ui/input';
 
 type Checklist = {
   name: string;
 };
 
-// Como agora é um Componente de Cliente, a busca de dados muda um pouco.
+// Vamos simular 2 perguntas para este exemplo
+const MOCKED_QUESTIONS = [
+  { id: 'q1', text: 'Item 1 está conforme?' },
+  { id: 'q2', text: 'Item 2 está conforme?' },
+];
+
 export default function ChecklistPage() {
   const params = useParams();
-  const id = params.id as string;
+  const checklistId = params.id as string;
 
-  // Estados para controlar nosso formulário
+  // Estados para controlar o formulário
   const [checklist, setChecklist] = useState<Checklist | null>(null);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [photo, setPhoto] = useState<File | null>(null);
+  // O estado de 'answers' agora guarda o valor e o arquivo da foto
+  const [answers, setAnswers] = useState<Record<string, { answer: string; photo?: File | null }>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [executorId, setExecutorId] = useState<string | null>('a1b2c3d4-e5f6-7890-1234-567890abcdef'); // Hardcoded para teste. Em produção, viria do login.
 
-  // Criamos o cliente Supabase que pode ser usado no navegador
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 
-  // Efeito para buscar os dados do checklist quando a página carrega
   useEffect(() => {
     async function getChecklist() {
-      const { data, error } = await supabase
-        .from('checklists')
-        .select('name')
-        .eq('id', id)
-        .single<Checklist>();
-
-      if (error || !data) {
-        notFound();
-      } else {
-        setChecklist(data);
-      }
+      const { data, error } = await supabase.from('checklists').select('name').eq('id', checklistId).single<Checklist>();
+      if (error || !data) { notFound(); } 
+      else { setChecklist(data); }
       setIsLoading(false);
     }
     getChecklist();
-  }, [id]);
+  }, [checklistId]);
 
-  // Função para atualizar as respostas no estado
+  // Atualiza a resposta (sim/nao)
   const handleAnswerChange = (questionId: string, value: string) => {
-    setAnswers(prev => ({ ...prev, [questionId]: value }));
+    setAnswers(prev => ({ ...prev, [questionId]: { ...prev[questionId], answer: value } }));
   };
 
-  // Lógica para verificar se a foto é necessária
-  const requiresPhoto = Object.values(answers).includes('nao');
+  // Atualiza o arquivo de foto para uma pergunta específica
+  const handlePhotoChange = (questionId: string, file: File | null) => {
+    setAnswers(prev => ({ ...prev, [questionId]: { ...prev[questionId], photo: file } }));
+  };
 
-  // Função chamada ao clicar em "Enviar"
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (isSubmitting) return;
 
-    // Validação: se precisa de foto e não tem, exibe um alerta.
-    if (requiresPhoto && !photo) {
-      alert("Por favor, anexe uma foto como evidência da não conformidade.");
-      return;
+    // Validação: checa se cada pergunta marcada como "não" tem uma foto
+    for (const q of MOCKED_QUESTIONS) {
+      if (answers[q.id]?.answer === 'nao' && !answers[q.id]?.photo) {
+        alert(`Por favor, anexe uma foto para a pergunta: "${q.text}"`);
+        return;
+      }
     }
 
     setIsSubmitting(true);
-    let photoUrl = null;
+    const finalAnswers: Record<string, { answer: string; photo_url: string | null }> = {};
+    let hasNonCompliance = false;
 
-    // 1. Se houver foto, faz o upload para o Storage
-    if (photo) {
-      const filePath = `public/${id}-${Date.now()}-${photo.name}`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('checklist-photos')
-        .upload(filePath, photo);
+    // 1. Faz o upload das fotos necessárias
+    for (const questionId in answers) {
+      const currentAnswer = answers[questionId];
+      finalAnswers[questionId] = { answer: currentAnswer.answer, photo_url: null };
 
-      if (uploadError) {
-        console.error("Erro no upload da foto:", uploadError);
-        alert("Ocorreu um erro ao enviar a foto. Tente novamente.");
-        setIsSubmitting(false);
-        return;
+      if (currentAnswer.answer === 'nao') {
+        hasNonCompliance = true;
+        if (currentAnswer.photo) {
+          const photo = currentAnswer.photo;
+          const filePath = `public/${checklistId}-${questionId}-${Date.now()}-${photo.name}`;
+          
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('checklist-photos')
+            .upload(filePath, photo);
+
+          if (uploadError) {
+            alert(`Erro no upload da foto para a pergunta ${questionId}. Tente novamente.`);
+            setIsSubmitting(false);
+            return;
+          }
+
+          const { data: publicUrlData } = supabase.storage
+            .from('checklist-photos')
+            .getPublicUrl(uploadData.path);
+          
+          finalAnswers[questionId].photo_url = publicUrlData.publicUrl;
+        }
       }
-
-      // 2. Pega a URL pública da foto enviada
-      const { data: publicUrlData } = supabase.storage
-        .from('checklist-photos')
-        .getPublicUrl(uploadData.path);
-      
-      photoUrl = publicUrlData.publicUrl;
     }
 
-    // 3. Insere os dados na tabela 'submissions'
+    // 2. Insere os dados na tabela 'submissions'
     const { error: insertError } = await supabase.from('submissions').insert({
-      checklist_id: id,
-      answers: answers,
-      has_non_compliance: requiresPhoto,
-      non_compliance_photo_url: photoUrl,
+      checklist_id: checklistId,
+      executor_id: executorId,
+      answers: finalAnswers,
+      has_non_compliance: hasNonCompliance,
     });
 
     if (insertError) {
-      console.error("Erro ao salvar a submissão:", insertError);
       alert("Ocorreu um erro ao salvar o checklist. Tente novamente.");
+      console.error(insertError);
     } else {
       alert("Checklist enviado com sucesso!");
-      // Aqui você poderia redirecionar o usuário para uma página de "obrigado"
-      // window.location.href = '/obrigado';
     }
 
     setIsSubmitting(false);
@@ -130,38 +136,30 @@ export default function ChecklistPage() {
             <CardDescription>Por favor, preencha todos os itens abaixo.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid w-full items-center gap-4">
+            <div className="grid w-full items-center gap-6">
               
-              {/* Pergunta 1 (Exemplo) */}
-              <div className="flex flex-col space-y-3">
-                <Label>Item 1 está conforme?</Label>
-                <RadioGroup onValueChange={(value) => handleAnswerChange('q1', value)} className="flex space-x-4">
-                  <div className="flex items-center space-x-2"><RadioGroupItem value="sim" id="q1-sim" /><Label htmlFor="q1-sim">Sim</Label></div>
-                  <div className="flex items-center space-x-2"><RadioGroupItem value="nao" id="q1-nao" /><Label htmlFor="q1-nao">Não</Label></div>
-                </RadioGroup>
-              </div>
-
-              <Separator />
-
-              {/* Pergunta 2 (Exemplo) */}
-              <div className="flex flex-col space-y-3">
-                <Label>Item 2 está conforme?</Label>
-                <RadioGroup onValueChange={(value) => handleAnswerChange('q2', value)} className="flex space-x-4">
-                  <div className="flex items-center space-x-2"><RadioGroupItem value="sim" id="q2-sim" /><Label htmlFor="q2-sim">Sim</Label></div>
-                  <div className="flex items-center space-x-2"><RadioGroupItem value="nao" id="q2-nao" /><Label htmlFor="q2-nao">Não</Label></div>
-                </RadioGroup>
-              </div>
-
-              {/* Campo de Foto Condicional */}
-              {requiresPhoto && (
-                <>
-                  <Separator />
+              {MOCKED_QUESTIONS.map((question, index) => (
+                <div key={question.id}>
                   <div className="flex flex-col space-y-3">
-                    <Label htmlFor="picture">Anexar Foto de Evidência (Obrigatório)</Label>
-                    <Input id="picture" type="file" required onChange={(e) => setPhoto(e.target.files ? e.target.files[0] : null)} />
+                    <Label>{question.text}</Label>
+                    <RadioGroup onValueChange={(value) => handleAnswerChange(question.id, value)} className="flex space-x-4">
+                      <div className="flex items-center space-x-2"><RadioGroupItem value="sim" id={`${question.id}-sim`} /><Label htmlFor={`${question.id}-sim`}>Sim</Label></div>
+                      <div className="flex items-center space-x-2"><RadioGroupItem value="nao" id={`${question.id}-nao`} /><Label htmlFor={`${question.id}-nao`}>Não</Label></div>
+                    </RadioGroup>
                   </div>
-                </>
-              )}
+                  
+                  {/* Campo de foto aparece se a resposta for "não" */}
+                  {answers[question.id]?.answer === 'nao' && (
+                    <div className="mt-4 flex flex-col space-y-2">
+                       <Label htmlFor={`photo-${question.id}`} className="text-sm text-red-600">Anexar Foto (Obrigatório)</Label>
+                       <Input id={`photo-${question.id}`} type="file" required onChange={(e) => handlePhotoChange(question.id, e.target.files ? e.target.files[0] : null)} />
+                    </div>
+                  )}
+
+                  {/* Adiciona um separador depois de cada pergunta, exceto a última */}
+                  {index < MOCKED_QUESTIONS.length - 1 && <Separator className="mt-6" />}
+                </div>
+              ))}
 
             </div>
           </CardContent>
